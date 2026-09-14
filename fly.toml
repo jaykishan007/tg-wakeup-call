@@ -1,0 +1,19 @@
+# Fly.io config for a background worker — no [http_service]/[[services]]
+# block on purpose. This app never receives inbound requests (it only makes
+# outbound connections to Telegram and Twilio), so Fly's proxy-driven
+# autostop/autostart never engages and the machine just runs continuously.
+app = "zora-channel-alert"
+primary_region = "iad"
+
+[build]
+
+[processes]
+app = "python -u listener.py"
+
+[[restart]]
+policy = "always"
+
+[[vm]]
+size = "shared-cpu-1x"
+memory = "256mb"
+processes = ["app"]
