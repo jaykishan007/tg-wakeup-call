@@ -1,0 +1,17 @@
+[Unit]
+Description=Telegram channel to phone call alert
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/opt/telegram-channel-alert
+ExecStart=/opt/telegram-channel-alert/.venv/bin/python /opt/telegram-channel-alert/listener.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
