@@ -2,9 +2,11 @@
 Telegram channel -> phone call alert.
 
 Watches one Telegram channel (as a userbot, via Telethon) and places a
-Twilio voice call to a fixed mobile number whenever a new post appears,
-subject to a cooldown so that a burst of channel activity doesn't trigger
-a burst of calls (which Indian carriers flag as spam/robocall behavior).
+Twilio voice call to a fixed mobile number whenever a new post looks like
+an actionable trade instruction (open/close/cancel/stoploss/entry/etc,
+see is_actionable), subject to a cooldown so that a burst of channel
+activity doesn't trigger a burst of calls (which Indian carriers flag as
+spam/robocall behavior).
 
 Run with: python listener.py
 Requires session.session (from login.py) in the same directory, and a
@@ -55,6 +57,44 @@ client = TelegramClient(SESSION_NAME, TG_API_ID, TG_API_HASH)
 
 _last_call_ts = 0.0
 
+# Only call for messages that look like actual trade instructions, not PnL
+# brags, commentary, or rhetorical noise. Derived from + validated against
+# 2 weeks of real channel history.
+_ACTIONABLE_PATTERNS = [
+    re.compile(p)
+    for p in (
+        r"\bopen long\b",
+        r"\bopen short\b",
+        r"\border limit\b",
+        r"\bclose\b",
+        r"\bcancel\b",
+        r"\bstop[- ]?loss\b",
+        r"\bentry\b",
+        r"\bbuy\b",
+    )
+]
+_ADD_RE = re.compile(r"\badd\b")
+_VOL_RE = re.compile(r"\bvol\b")
+_CAPITAL_RE = re.compile(r"\bcapital\b")
+# bare "short"/"long" directly attached to a ticker, e.g. "Short #Lab", "long $ZEC"
+_TICKER_RE = re.compile(r"\b(short|long)\s*[#$]\w+")
+_BARE_DIRECTION_RE = re.compile(r"\b(short|long)\b")
+
+
+def is_actionable(text: str | None) -> bool:
+    if not text:
+        return False
+    t = text.lower()
+    if any(p.search(t) for p in _ACTIONABLE_PATTERNS):
+        return True
+    if _ADD_RE.search(t) and _VOL_RE.search(t):
+        return True
+    if _TICKER_RE.search(t):
+        return True
+    if _BARE_DIRECTION_RE.search(t) and (_VOL_RE.search(t) or _CAPITAL_RE.search(t)):
+        return True
+    return False
+
 
 def build_twiml(channel_title: str, message_text: str | None) -> str:
     say_text = f"Alert. New post in {channel_title}."
@@ -92,18 +132,22 @@ async def on_new_message(event):
     chat = await event.get_chat()
     channel_title = getattr(chat, "title", "the channel")
 
+    if not is_actionable(event.raw_text):
+        log.info("New message in %s, skipping (not an actionable trade signal)", channel_title)
+        return
+
     now = time.monotonic()
     elapsed = now - _last_call_ts
     if elapsed < COOLDOWN_SECONDS:
         remaining = COOLDOWN_SECONDS - elapsed
         log.info(
-            "New message in %s, but skipping call (cooldown active, %.0fs remaining)",
+            "New actionable message in %s, but skipping call (cooldown active, %.0fs remaining)",
             channel_title,
             remaining,
         )
         return
 
-    log.info("New message in %s, triggering call", channel_title)
+    log.info("New actionable message in %s, triggering call", channel_title)
     _last_call_ts = now
     place_call(channel_title, event.raw_text)
 
