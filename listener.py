@@ -71,14 +71,18 @@ _ACTIONABLE_PATTERNS = [
         r"\bstop[- ]?loss\b",
         r"\bentry\b",
         r"\bbuy\b",
+        r"\badd\b",
     )
 ]
-_ADD_RE = re.compile(r"\badd\b")
 _VOL_RE = re.compile(r"\bvol\b")
 _CAPITAL_RE = re.compile(r"\bcapital\b")
 # bare "short"/"long" directly attached to a ticker, e.g. "Short #Lab", "long $ZEC"
 _TICKER_RE = re.compile(r"\b(short|long)\s*[#$]\w+")
 _BARE_DIRECTION_RE = re.compile(r"\b(short|long)\b")
+# re-entry, e.g. "Round 2", "Movr round2"; but not PnL like "Round 2 +25%"
+_ROUND_RE = re.compile(r"\bround\s*\d+\b(?!\s*\+\d)")
+# re-entry signals are terse; longer "round 2" posts are commentary
+ROUND_MAX_WORDS = 10
 
 
 def is_actionable(text: str | None) -> bool:
@@ -87,11 +91,11 @@ def is_actionable(text: str | None) -> bool:
     t = text.lower()
     if any(p.search(t) for p in _ACTIONABLE_PATTERNS):
         return True
-    if _ADD_RE.search(t) and _VOL_RE.search(t):
-        return True
     if _TICKER_RE.search(t):
         return True
     if _BARE_DIRECTION_RE.search(t) and (_VOL_RE.search(t) or _CAPITAL_RE.search(t)):
+        return True
+    if _ROUND_RE.search(t) and len(t.split()) <= ROUND_MAX_WORDS:
         return True
     return False
 
